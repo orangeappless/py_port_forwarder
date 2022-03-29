@@ -3,18 +3,27 @@
 
 from socket import *
 import threading
+import sys
 import hosts
 
 
-def create_sock():
-    sock = socket(AF_INET, SOCK_STREAM)
-    sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+def create_sock(ip_ver, fwdr_host, fwdr_port):
+    addr = (fwdr_host, fwdr_port)
+
+    if has_dualstack_ipv6() and ip_ver == "6":
+        sock = create_server(addr, family=AF_INET6, dualstack_ipv6=True)
+    else:
+        sock = create_server(addr, family=AF_INET)
 
     return sock
 
 
-def start_forwarder(fwdr_socket, fwdr_host, fwdr_port):
-    fwdr_socket.bind((fwdr_host, fwdr_port))
+def start_forwarder(ip_ver, fwdr_socket, fwdr_port):
+    if ip_ver == "6":
+        server_ip = hosts.SERVER_IP_V6
+    else:
+        server_ip = hosts.SERVER_IP_V4
+
     fwdr_socket.listen()
 
     print(f"Forwarder listening on port {fwdr_port}...")
@@ -26,7 +35,7 @@ def start_forwarder(fwdr_socket, fwdr_host, fwdr_port):
     elif fwdr_port == 8000:
         dest_port = 8888
 
-    accept_conn(fwdr_socket, hosts.SERVER_IP, dest_port)
+    accept_conn(fwdr_socket, server_ip, dest_port)
 
 
 def accept_conn(fwdr_socket, dest_host, dest_port):
@@ -34,8 +43,12 @@ def accept_conn(fwdr_socket, dest_host, dest_port):
         recv_sock, recv_addr = fwdr_socket.accept()
         print(f"Initiated TCP connection with {recv_addr}")
 
-        send_sock = socket(AF_INET, SOCK_STREAM)
-        send_sock.connect((dest_host, dest_port))
+        if sys.argv[1] == "6":
+            send_sock = socket(AF_INET6, SOCK_STREAM)
+            send_sock.connect((dest_host, dest_port, 0, 0))
+        else:
+            send_sock = socket(AF_INET, SOCK_STREAM)
+            send_sock.connect((dest_host, dest_port))
         
         try:
             src_to_dest = threading.Thread(target=forward_data, args=(recv_sock, send_sock,))
@@ -57,7 +70,7 @@ def forward_data(src_socket, dest_socket):
 
             dest_socket.send(data)
         except Exception as e:
-            print(e)
+            print("Client disconnected")
             break
 
     src_socket.close()
@@ -65,13 +78,17 @@ def forward_data(src_socket, dest_socket):
 
 
 def main():
-    f_sock_ssh = create_sock()
-    f_sock_http = create_sock()
-    f_sock_echo = create_sock()
+    ip_version = sys.argv[1]
 
-    ssh_thread = threading.Thread(target=start_forwarder, args=(f_sock_ssh, hosts.FORWARDER_IP, hosts.FORWARDER_LISTEN_PORT_SSH,))
-    http_thread = threading.Thread(target=start_forwarder, args=(f_sock_http, hosts.FORWARDER_IP, hosts.FORWARDER_LISTEN_PORT_HTTP,))
-    echo_thread = threading.Thread(target=start_forwarder, args=(f_sock_echo, hosts.FORWARDER_IP, hosts.FORWARDER_LISTEN_PORT_ECHO,))
+    print(f"Forwarder running in IPv{ip_version} mode\n")
+
+    f_sock_ssh = create_sock(ip_version, hosts.FORWARDER_IP, hosts.FORWARDER_LISTEN_PORT_SSH)
+    f_sock_http = create_sock(ip_version, hosts.FORWARDER_IP, hosts.FORWARDER_LISTEN_PORT_HTTP)
+    f_sock_echo = create_sock(ip_version, hosts.FORWARDER_IP, hosts.FORWARDER_LISTEN_PORT_ECHO)
+
+    ssh_thread = threading.Thread(target=start_forwarder, args=(ip_version, f_sock_ssh, hosts.FORWARDER_LISTEN_PORT_SSH,))
+    http_thread = threading.Thread(target=start_forwarder, args=(ip_version, f_sock_http, hosts.FORWARDER_LISTEN_PORT_HTTP,))
+    echo_thread = threading.Thread(target=start_forwarder, args=(ip_version, f_sock_echo, hosts.FORWARDER_LISTEN_PORT_ECHO,))
     
     socks = [ssh_thread, http_thread, echo_thread]
 
