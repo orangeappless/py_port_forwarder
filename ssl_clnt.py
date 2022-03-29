@@ -25,12 +25,13 @@ def main():
         sock.connect((server_host, server_port))
 
         while True:
-            msg = input("Send:\r\n")
-
-            if msg == "stop":
-                break
+            msg = input("Send: ")
 
             sock.sendall(msg.encode('utf-8'))
+            
+            if msg == ":q":
+                sock.close()
+                break
 
 
 if __name__ == "__main__":

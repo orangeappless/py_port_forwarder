@@ -27,11 +27,9 @@ def create_sec_sock(serv_host, serv_port):
 
 
 def start_server(serv_sock):
-    listen_host = ""
     listen_port = 8888
 
     with serv_sock as sock:
-        # sock.bind((listen_host, listen_port))
         sock.listen()
 
         print(f"Echo server listening on port {listen_port}...")
@@ -42,6 +40,12 @@ def start_server(serv_sock):
             while True:
                 try:
                     data = clnt_conn.recv(1024)
+
+                    if data == b":q":
+                        print("Shutdown signal received from client. Closing server...")
+
+                        clnt_conn.close()
+                        exit(0)
 
                     if not data:
                         break
